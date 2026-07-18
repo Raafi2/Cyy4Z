@@ -19,24 +19,30 @@ function getOrCreateSession(deviceId) {
   return deviceSessions.get(deviceId);
 }
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
-
 async function validateAgentWs(deviceId, tok) {
-  try {
-    // tok is actually 'deviceId:actualToken'
-    const actualToken = tok.includes(':') ? tok.split(':').slice(1).join(':') : tok;
-    
-    const device = await prisma.device.findUnique({ where: { id: deviceId } });
-    
-    if (!device) { console.log("Device not found:", deviceId); return null; }
-    if (device.token !== actualToken) { console.log("Token mismatch"); return null; }
-    if (device.deleted) { console.log("Device deleted:", deviceId); return null; }
-    return device;
-  } catch (e) {
-    console.error("validateAgentWs error:", e);
-    return null;
-  }
+  return new Promise((resolve) => {
+    http.get(`http://localhost:${PORT}/api/agent/validate?deviceId=${deviceId}&token=${tok}`, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.ok) {
+            resolve({ name: json.name });
+          } else {
+            console.log("validateAgentWs rejected:", json.error);
+            resolve(null);
+          }
+        } catch (e) {
+          console.error("validateAgentWs parse error:", e);
+          resolve(null);
+        }
+      });
+    }).on('error', (e) => {
+      console.error("validateAgentWs request error:", e);
+      resolve(null);
+    });
+  });
 }
 
 app.prepare().then(() => {

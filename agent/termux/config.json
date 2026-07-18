@@ -1,0 +1,8 @@
+{
+  "panel_url": "https://YOUR-RAILWAY-APP.railway.app",
+  "device_id": "",
+  "device_token": "",
+  "ping_interval": 5,
+  "scrcpy_bitrate": 2000000,
+  "scrcpy_max_size": 720
+}

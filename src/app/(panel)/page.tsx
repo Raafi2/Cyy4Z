@@ -55,21 +55,17 @@ export default function DashboardPage() {
             <div className="tutorial-step">
               <div className="tutorial-num">1</div>
               <div>
-                <div style={{fontWeight:600, marginBottom:'6px'}}>Install agent di Termux (perlu Root)</div>
-                <div className="code-block">curl -sSL https://raw.githubusercontent.com/YOUR_REPO/main/agent/termux/install.sh | bash</div>
+                <div style={{fontWeight:600, marginBottom:'6px'}}>Jalankan script ini di Termux (HP harus Root)</div>
+                <div className="code-block">curl -sSL https://raw.githubusercontent.com/Raafi2/Cyy4Z/main/agent/termux/install.sh | bash</div>
+                <div style={{fontSize:'0.8rem', color:'var(--text3)', marginTop:'6px'}}>
+                  Script ini akan otomatis menginstall agent, nyambungin ke panel, dan auto-register.
+                </div>
               </div>
             </div>
             <div className="tutorial-step">
               <div className="tutorial-num">2</div>
               <div>
-                <div style={{fontWeight:600, marginBottom:'6px'}}>Jalankan agent</div>
-                <div className="code-block">cd ~/cloudphone-agent && python agent.py</div>
-              </div>
-            </div>
-            <div className="tutorial-step">
-              <div className="tutorial-num">3</div>
-              <div>
-                <div style={{fontWeight:600}}>Device akan otomatis muncul di panel ini</div>
+                <div style={{fontWeight:600}}>Selesai! Device akan otomatis muncul di panel ini.</div>
               </div>
             </div>
           </div>

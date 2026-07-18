@@ -26,10 +26,30 @@ def main():
     print("Starting CloudPhone Agent...")
     config = load_config()
     
-    if not config['device_id'] or not config['device_token']:
-        print("Please register the device first and fill config.json")
-        return
-        
+    if not config.get('device_id') or not config.get('device_token'):
+        print("Device not registered. Auto-registering to panel...")
+        try:
+            import subprocess
+            name = subprocess.check_output('getprop ro.product.model', shell=True).decode().strip()
+            ver = subprocess.check_output('getprop ro.build.version.release', shell=True).decode().strip()
+        except:
+            name, ver = "CloudPhone", "11"
+        try:
+            res = requests.post(f"{config['panel_url']}/api/devices/register", json={"name": name, "androidVersion": ver})
+            data = res.json()
+            if 'deviceId' in data:
+                config['device_id'] = data['deviceId']
+                config['device_token'] = data['token']
+                with open('config.json', 'w') as f:
+                    json.dump(config, f, indent=2)
+                print(f"Registered successfully! Device ID: {config['device_id']}")
+            else:
+                print("Failed to register:", data)
+                return
+        except Exception as e:
+            print("Failed to reach panel for registration:", e)
+            return
+            
     clipboard = ClipboardSync()
     monitor = DeviceMonitor()
     input_injector = InputInjector()

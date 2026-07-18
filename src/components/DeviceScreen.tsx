@@ -20,9 +20,8 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
   // Displayed dimensions
   const displayW = rotated ? screenHeight : screenWidth
   const displayH = rotated ? screenWidth : screenHeight
-  const scale = Math.min(400 / displayW, 560 / displayH)
-  const canvasW = Math.round(displayW * scale)
-  const canvasH = Math.round(displayH * scale)
+  const canvasW = displayW
+  const canvasH = displayH
 
   const setupDecoder = useCallback((canvas: HTMLCanvasElement) => {
     if (typeof window === 'undefined' || !('VideoDecoder' in window)) {
@@ -74,6 +73,7 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
     }
 
     let buffer = new Uint8Array(0)
+    let configBuffer = new Uint8Array(0) // Stores SPS and PPS
 
     ws.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
@@ -89,7 +89,6 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
         // Find NAL units (0x00 0x00 0x00 0x01)
         let offset = 0
         while (offset < buffer.length - 4) {
-          // Find next start code
           let nextStart = -1
           for (let i = offset + 4; i < buffer.length - 3; i++) {
             if (buffer[i] === 0 && buffer[i+1] === 0 && buffer[i+2] === 0 && buffer[i+3] === 1) {
@@ -97,18 +96,13 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
               break
             }
           }
-
-          if (nextStart === -1) {
-            // No more complete NAL units in buffer
-            break
-          }
-
+          if (nextStart === -1) break
+          
           const nalUnit = buffer.slice(offset, nextStart)
           processNalUnit(nalUnit, decoder)
           offset = nextStart
         }
         
-        // Keep remainder
         if (offset > 0) {
           buffer = buffer.slice(offset)
         }
@@ -119,10 +113,29 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
       if (nalUnit.length < 5) return
       try {
         const nalType = nalUnit[4] & 0x1F
-        const isKey = nalType === 5 || nalType === 7 || nalType === 8 // IDR, SPS, PPS
+        
+        // SPS (7) or PPS (8)
+        if (nalType === 7 || nalType === 8) {
+          const newConfig = new Uint8Array(configBuffer.length + nalUnit.length)
+          newConfig.set(configBuffer)
+          newConfig.set(nalUnit, configBuffer.length)
+          configBuffer = newConfig
+          return // Do not decode yet
+        }
+
+        const isKey = nalType === 5 // IDR
+        
+        let dataToDecode = nalUnit
+        if (isKey && configBuffer.length > 0) {
+           // Prepend SPS/PPS to this IDR frame
+           dataToDecode = new Uint8Array(configBuffer.length + nalUnit.length)
+           dataToDecode.set(configBuffer)
+           dataToDecode.set(nalUnit, configBuffer.length)
+        }
+
         decoder.decode(new window.EncodedVideoChunk({
           type: isKey ? 'key' : 'delta',
-          data: nalUnit,
+          data: dataToDecode,
           timestamp: performance.now() * 1000
         }))
       } catch (err) {

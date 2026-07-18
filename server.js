@@ -19,12 +19,7 @@ function getOrCreateSession(deviceId) {
   return deviceSessions.get(deviceId);
 }
 
-async function validateAgentWs(token) {
-  // token format: deviceId:token
-  const parts = token.split(':');
-  if (parts.length < 2) return null;
-  const deviceId = parts[0];
-  const tok = parts.slice(1).join(':');
+async function validateAgentWs(deviceId, tok) {
   try {
     const { PrismaClient } = require('@prisma/client');
     const prisma = new PrismaClient();
@@ -113,7 +108,7 @@ app.prepare().then(() => {
     if (type === 'agent') {
       // Validate agent token
       if (!token) { ws.close(4001, 'Missing token'); return; }
-      const device = await validateAgentWs(token);
+      const device = await validateAgentWs(deviceId, token);
       if (!device) { ws.close(4003, 'Unauthorized'); return; }
 
       const session = getOrCreateSession(deviceId);

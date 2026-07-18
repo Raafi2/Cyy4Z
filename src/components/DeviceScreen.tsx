@@ -73,31 +73,60 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
       decoderRef.current = decoder
     }
 
+    let buffer = new Uint8Array(0)
+
     ws.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
-        // Binary: H.264 frame
         const decoder = decoderRef.current
         if (!decoder || decoder.state === 'closed') return
-        try {
-          // Simple heuristic: check if this is a keyframe (starts with 0x00 0x00 0x00 0x01 0x65 or 0x67)
-          const bytes = new Uint8Array(e.data)
-          let isKey = false
-          if (bytes.length > 4) {
-            // NAL unit type
-            const nalType = bytes[4] & 0x1F
-            isKey = nalType === 5 || nalType === 7 // IDR or SPS
+
+        const chunk = new Uint8Array(e.data)
+        const newBuffer = new Uint8Array(buffer.length + chunk.length)
+        newBuffer.set(buffer)
+        newBuffer.set(chunk, buffer.length)
+        buffer = newBuffer
+
+        // Find NAL units (0x00 0x00 0x00 0x01)
+        let offset = 0
+        while (offset < buffer.length - 4) {
+          // Find next start code
+          let nextStart = -1
+          for (let i = offset + 4; i < buffer.length - 3; i++) {
+            if (buffer[i] === 0 && buffer[i+1] === 0 && buffer[i+2] === 0 && buffer[i+3] === 1) {
+              nextStart = i
+              break
+            }
           }
-          // @ts-ignore
-          decoder.decode(new window.EncodedVideoChunk({
-            type: isKey ? 'key' : 'delta',
-            data: e.data,
-            timestamp: performance.now() * 1000
-          }))
-        } catch (err) {
-          // decoder error, skip frame
+
+          if (nextStart === -1) {
+            // No more complete NAL units in buffer
+            break
+          }
+
+          const nalUnit = buffer.slice(offset, nextStart)
+          processNalUnit(nalUnit, decoder)
+          offset = nextStart
         }
-      } else {
-        // JSON message (stats, log, etc) - ignore in screen component
+        
+        // Keep remainder
+        if (offset > 0) {
+          buffer = buffer.slice(offset)
+        }
+      }
+    }
+
+    function processNalUnit(nalUnit: Uint8Array, decoder: any) {
+      if (nalUnit.length < 5) return
+      try {
+        const nalType = nalUnit[4] & 0x1F
+        const isKey = nalType === 5 || nalType === 7 || nalType === 8 // IDR, SPS, PPS
+        decoder.decode(new window.EncodedVideoChunk({
+          type: isKey ? 'key' : 'delta',
+          data: nalUnit,
+          timestamp: performance.now() * 1000
+        }))
+      } catch (err) {
+        console.error("Decode error on NAL:", err)
       }
     }
 

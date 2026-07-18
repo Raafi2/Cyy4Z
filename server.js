@@ -25,9 +25,12 @@ async function validateAgentWs(deviceId, tok) {
     const prisma = new PrismaClient();
     const device = await prisma.device.findUnique({ where: { id: deviceId } });
     await prisma.$disconnect();
-    if (!device || device.token !== tok || device.deleted) return null;
+    if (!device) { console.log("Device not found:", deviceId); return null; }
+    if (device.token !== tok) { console.log("Token mismatch:", device.token, "vs", tok); return null; }
+    if (device.deleted) { console.log("Device deleted:", deviceId); return null; }
     return device;
   } catch (e) {
+    console.error("validateAgentWs error:", e);
     return null;
   }
 }

@@ -78,7 +78,7 @@ class ScreenStreamer:
             except: pass
 
     def on_close(self, ws, *args):
-        print("WebSocket closed")
+        print(f"WebSocket closed. Args: {args}")
 
     def run(self):
         self.download_scrcpy()

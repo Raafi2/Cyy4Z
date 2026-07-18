@@ -29,18 +29,20 @@ class ScreenStreamer:
     def start_scrcpy(self):
         bitrate = self.config.get('scrcpy_bitrate', 2000000)
         max_size = self.config.get('scrcpy_max_size', 720)
+        
+        server_ver = SCRCPY_VERSION.replace('v', '') # must be '2.7' not 'v2.7'
+        
         cmd = [
             'su', '-c',
             f'CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server '
-            f'{SCRCPY_VERSION} tunnel_forward=true audio=false control=false cleanup=false '
+            f'{server_ver} tunnel_forward=true audio=false control=false cleanup=false '
             f'video_bit_rate={bitrate} max_size={max_size}'
         ]
         print("Starting scrcpy-server...")
         self.server_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        time.sleep(2)
+        time.sleep(3)
         
         # Forward socket
-        subprocess.run(['su', '-c', 'am start-foreground-service -a android.intent.action.MAIN']) # dummy keepalive
         # Actually scrcpy-server opens a local abstract socket named 'scrcpy'. We can read it with socat or direct unix socket in python if rooted, but let's use adb/port forwarding if local.
         # For simplicity in Termux, we bind the scrcpy server to a local port by injecting a tiny socat via su, or we use standard abstract unix socket.
         # In a real impl, scrcpy client connects via ADB. Here, we read from abstract socket:

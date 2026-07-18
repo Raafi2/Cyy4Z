@@ -6,10 +6,10 @@ interface Props {
   isOnline: boolean
   screenWidth: number
   screenHeight: number
-  sendControl: (data: any) => void
+  sendControl?: (data: any) => void
 }
 
-export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHeight, sendControl }: Props) {
+export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHeight, sendControl: externalSendControl }: Props) {
   const imgRef = useRef<HTMLImageElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const screenContainerRef = useRef<HTMLDivElement>(null)
@@ -20,6 +20,14 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
   const isPointerDown = useRef(false)
   const frameCount = useRef(0)
   const prevBlobUrl = useRef<string | null>(null)
+
+  const sendControl = useCallback((data: any) => {
+    if (externalSendControl) {
+      externalSendControl(data)
+    } else if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data))
+    }
+  }, [externalSendControl])
 
   const connect = useCallback(() => {
     if (!isOnline) return

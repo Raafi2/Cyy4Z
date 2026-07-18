@@ -19,15 +19,15 @@ function getOrCreateSession(deviceId) {
   return deviceSessions.get(deviceId);
 }
 
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
 async function validateAgentWs(deviceId, tok) {
   try {
     // tok is actually 'deviceId:actualToken'
     const actualToken = tok.includes(':') ? tok.split(':').slice(1).join(':') : tok;
     
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
     const device = await prisma.device.findUnique({ where: { id: deviceId } });
-    await prisma.$disconnect();
     
     if (!device) { console.log("Device not found:", deviceId); return null; }
     if (device.token !== actualToken) { console.log("Token mismatch"); return null; }

@@ -155,11 +155,21 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
     if (e.key === 'Backspace') sendControl({ type: 'key', keycode: 67 })
     else if (e.key === 'Enter') sendControl({ type: 'key', keycode: 66 })
     else if (e.key === 'Escape') sendControl({ type: 'key', keycode: 111 })
+    else if (e.key.toLowerCase() === 'f') toggleFullscreen()
     else if (e.key.length === 1) sendControl({ type: 'text', text: e.key })
   }
 
+  const screenContainerRef = useRef<HTMLDivElement>(null)
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      screenContainerRef.current?.requestFullscreen().catch(err => {})
+    } else {
+      document.exitFullscreen()
+    }
+  }
+
   return (
-    <div className="screen-container" style={{minHeight: 300}}>
+    <div ref={screenContainerRef} className="screen-container" style={{minHeight: 300, background: '#000'}}>
       {isOnline ? (
         <>
           <video
@@ -186,6 +196,9 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
             </div>
           )}
           <div className="screen-overlay">
+            <button className="screen-btn" onClick={toggleFullscreen} title="Fullscreen (F)">
+              ⛶
+            </button>
             <button className="screen-btn" onClick={handleRotate} title="Rotate">
               {rotated ? '📱' : '📺'}
             </button>

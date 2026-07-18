@@ -2,6 +2,13 @@ import json
 import time
 import sys
 import os
+import threading
+
+# Prevent Termux from sleeping
+try:
+    os.system("termux-wake-lock")
+except:
+    pass
 
 # Install deps if needed
 try:

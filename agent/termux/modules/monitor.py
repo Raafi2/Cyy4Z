@@ -4,7 +4,12 @@ import os
 class DeviceMonitor:
     def get_ip(self):
         try:
-            return subprocess.check_output("hostname -I | awk '{print $1}'", shell=True).decode().strip()
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
         except: return "0.0.0.0"
 
     def get_stats(self):

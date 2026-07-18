@@ -18,11 +18,12 @@ class ScreenStreamer:
         self.server_proc = None
 
     def download_scrcpy(self):
-        if not os.path.exists(SCRCPY_JAR):
+        abs_jar = os.path.abspath(SCRCPY_JAR)
+        if not os.path.exists(abs_jar):
             print(f"Downloading {SCRCPY_JAR}...")
             url = f"https://github.com/Genymobile/scrcpy/releases/download/{SCRCPY_VERSION}/scrcpy-server-{SCRCPY_VERSION}"
-            urllib.request.urlretrieve(url, SCRCPY_JAR)
-            subprocess.run(['su', '-c', f'cp {SCRCPY_JAR} /data/local/tmp/scrcpy-server.jar'])
+            urllib.request.urlretrieve(url, abs_jar)
+            subprocess.run(['su', '-c', f'cp "{abs_jar}" /data/local/tmp/scrcpy-server.jar'])
             subprocess.run(['su', '-c', 'chmod 777 /data/local/tmp/scrcpy-server.jar'])
 
     def start_scrcpy(self):

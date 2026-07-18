@@ -1,54 +1,33 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 
 interface Props {
   deviceId: string
   isOnline: boolean
   screenWidth: number
   screenHeight: number
+  sendControl: (data: any) => void
 }
 
-export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHeight }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null)
+export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHeight, sendControl }: Props) {
+  const imgRef = useRef<HTMLImageElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
-  const jmuxerRef = useRef<any>(null)
+  const screenContainerRef = useRef<HTMLDivElement>(null)
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState('')
   const [rotated, setRotated] = useState(false)
+  const [fps, setFps] = useState(0)
   const isPointerDown = useRef(false)
+  const frameCount = useRef(0)
+  const prevBlobUrl = useRef<string | null>(null)
 
-  // Displayed dimensions
-  const displayW = rotated ? screenHeight : screenWidth
-  const displayH = rotated ? screenWidth : screenHeight
-
-  const loadJMuxer = async () => {
-    if (typeof window !== 'undefined' && !(window as any).JMuxer) {
-      return new Promise<void>((resolve, reject) => {
-        const script = document.createElement('script')
-        script.src = 'https://cdn.jsdelivr.net/npm/jmuxer@2.0.5/dist/jmuxer.min.js'
-        script.onload = () => resolve()
-        script.onerror = () => reject(new Error('Failed to load JMuxer'))
-        document.body.appendChild(script)
-      })
-    }
-  }
-
-  const connect = useCallback(async () => {
+  const connect = useCallback(() => {
     if (!isOnline) return
-    const video = videoRef.current
-    if (!video) return
-
-    try {
-      await loadJMuxer()
-    } catch (e: any) {
-      setError(e.message)
-      return
-    }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
     const wsUrl = `${protocol}//${host}/ws?type=browser&deviceId=${deviceId}`
-    
+
     const ws = new WebSocket(wsUrl)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
@@ -56,91 +35,81 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
     ws.onopen = () => {
       setConnected(true)
       setError('')
-      
-      if (jmuxerRef.current) {
-        jmuxerRef.current.destroy()
-      }
-      
-      // @ts-ignore
-      jmuxerRef.current = new window.JMuxer({
-        node: video,
-        mode: 'video',
-        flushingTime: 0,
-        fps: 60,
-        debug: false
-      })
+      frameCount.current = 0
     }
 
     ws.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
-        const jmuxer = jmuxerRef.current
-        if (jmuxer) {
-          try {
-            jmuxer.feed({ video: new Uint8Array(e.data) })
-          } catch (err) {
-            console.error("JMuxer feed error:", err)
-          }
+        const blob = new Blob([e.data], { type: 'image/jpeg' })
+        const url = URL.createObjectURL(blob)
+
+        if (imgRef.current) {
+          imgRef.current.src = url
         }
+
+        // Revoke previous blob to prevent memory leak
+        if (prevBlobUrl.current) {
+          URL.revokeObjectURL(prevBlobUrl.current)
+        }
+        prevBlobUrl.current = url
+        frameCount.current++
       }
     }
 
     ws.onclose = () => {
       setConnected(false)
-      if (jmuxerRef.current) {
-        try { jmuxerRef.current.destroy() } catch {}
-        jmuxerRef.current = null
-      }
       setTimeout(() => {
         if (isOnline) connect()
       }, 3000)
     }
 
     ws.onerror = () => {
-      setError('WebSocket error')
+      setError('Connection lost, reconnecting...')
     }
   }, [deviceId, isOnline])
+
+  // FPS counter
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFps(frameCount.current)
+      frameCount.current = 0
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     if (isOnline) connect()
     return () => {
       if (wsRef.current) wsRef.current.close()
-      if (jmuxerRef.current) {
-        try { jmuxerRef.current.destroy() } catch {}
-      }
+      if (prevBlobUrl.current) URL.revokeObjectURL(prevBlobUrl.current)
     }
   }, [isOnline, connect])
 
-  // Calculate touch coordinates mapped to device resolution
-  const getDeviceCoords = (e: React.MouseEvent<HTMLVideoElement>) => {
-    const video = videoRef.current!
-    const rect = video.getBoundingClientRect()
+  // Touch coordinates
+  const getDeviceCoords = (e: React.MouseEvent<HTMLImageElement>) => {
+    const img = imgRef.current!
+    const rect = img.getBoundingClientRect()
     const xRatio = (e.clientX - rect.left) / rect.width
     const yRatio = (e.clientY - rect.top) / rect.height
-    // Map to actual device resolution
     const x = Math.round(xRatio * screenWidth)
     const y = Math.round(yRatio * screenHeight)
     return { x, y }
   }
 
-  const sendControl = (msg: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg))
-    }
-  }
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLVideoElement>) => {
+  const handleMouseDown = (e: React.MouseEvent<HTMLImageElement>) => {
+    e.preventDefault()
     isPointerDown.current = true
     const { x, y } = getDeviceCoords(e)
     sendControl({ type: 'touch', action: 'down', x, y })
   }
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLVideoElement>) => {
+  const handleMouseMove = (e: React.MouseEvent<HTMLImageElement>) => {
     if (!isPointerDown.current) return
     const { x, y } = getDeviceCoords(e)
     sendControl({ type: 'touch', action: 'move', x, y })
   }
 
-  const handleMouseUp = (e: React.MouseEvent<HTMLVideoElement>) => {
+  const handleMouseUp = (e: React.MouseEvent<HTMLImageElement>) => {
     isPointerDown.current = false
     const { x, y } = getDeviceCoords(e)
     sendControl({ type: 'touch', action: 'up', x, y })
@@ -151,7 +120,15 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
     sendControl({ type: 'rotate', landscape: !rotated })
   }
 
-  const handleKeyboard = (e: React.KeyboardEvent<HTMLVideoElement>) => {
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      screenContainerRef.current?.requestFullscreen().catch(() => {})
+    } else {
+      document.exitFullscreen()
+    }
+  }
+
+  const handleKeyboard = (e: React.KeyboardEvent) => {
     if (e.key === 'Backspace') sendControl({ type: 'key', keycode: 67 })
     else if (e.key === 'Enter') sendControl({ type: 'key', keycode: 66 })
     else if (e.key === 'Escape') sendControl({ type: 'key', keycode: 111 })
@@ -159,59 +136,68 @@ export default function DeviceScreen({ deviceId, isOnline, screenWidth, screenHe
     else if (e.key.length === 1) sendControl({ type: 'text', text: e.key })
   }
 
-  const screenContainerRef = useRef<HTMLDivElement>(null)
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      screenContainerRef.current?.requestFullscreen().catch(err => {})
-    } else {
-      document.exitFullscreen()
-    }
-  }
-
   return (
-    <div ref={screenContainerRef} className="screen-container" style={{minHeight: 300, background: '#000'}}>
+    <div
+      ref={screenContainerRef}
+      className="screen-container"
+      style={{ minHeight: 300, background: '#000' }}
+      tabIndex={0}
+      onKeyDown={handleKeyboard}
+    >
       {isOnline ? (
         <>
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
+          <img
+            ref={imgRef}
+            alt="Device Screen"
+            draggable={false}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
-            onKeyDown={handleKeyboard}
-            tabIndex={0}
-            style={{outline:'none', cursor:'crosshair', touchAction:'none', maxWidth:'100%', maxHeight:'80vh'}}
+            style={{
+              outline: 'none',
+              cursor: 'crosshair',
+              touchAction: 'none',
+              maxWidth: '100%',
+              maxHeight: '80vh',
+              userSelect: 'none',
+              display: 'block',
+              margin: '0 auto',
+              transform: rotated ? 'rotate(90deg)' : 'none'
+            }}
           />
           {error && (
-            <div style={{position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.7)', flexDirection:'column', gap:'8px'}}>
-              <span style={{fontSize:'1.5rem'}}>⚠️</span>
-              <span style={{color:'var(--yellow)', fontSize:'0.8rem', textAlign:'center', padding:'0 16px'}}>{error}</span>
-            </div>
-          )}
-          {!connected && !error && (
-            <div style={{position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.5)'}}>
-              <div className="spinner" style={{margin:0}}></div>
+            <div style={{
+              position: 'absolute', bottom: 8, left: 8, right: 8,
+              background: 'rgba(239,68,68,0.8)', color: 'white',
+              padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem',
+              textAlign: 'center', backdropFilter: 'blur(4px)'
+            }}>
+              ⚠️ {error}
             </div>
           )}
           <div className="screen-overlay">
+            <span style={{
+              background: 'rgba(0,0,0,0.6)', color: connected ? '#22c55e' : '#ef4444',
+              padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem',
+              fontFamily: 'monospace', backdropFilter: 'blur(4px)',
+              border: '1px solid rgba(255,255,255,0.1)'
+            }}>
+              {connected ? `${fps} FPS` : 'Connecting...'}
+            </span>
             <button className="screen-btn" onClick={toggleFullscreen} title="Fullscreen (F)">
               ⛶
             </button>
             <button className="screen-btn" onClick={handleRotate} title="Rotate">
               {rotated ? '📱' : '📺'}
             </button>
-            <button className="screen-btn" onClick={() => sendControl({ type: 'key', keycode: 4 })} title="Back">◀</button>
-            <button className="screen-btn" onClick={() => sendControl({ type: 'key', keycode: 3 })} title="Home">🏠</button>
-            <button className="screen-btn" onClick={() => sendControl({ type: 'key', keycode: 187 })} title="Recents">⊞</button>
           </div>
         </>
       ) : (
         <div className="screen-placeholder">
-          <div className="screen-placeholder-icon">📱</div>
-          <div style={{fontSize:'0.85rem'}}>Device offline</div>
-          <div style={{fontSize:'0.75rem', color:'var(--text3)'}}>Jalankan agent di Termux</div>
+          <div className="screen-placeholder-icon">📵</div>
+          <div>Device Offline</div>
+          <div style={{fontSize: '0.8rem'}}>Waiting for agent connection...</div>
         </div>
       )}
     </div>

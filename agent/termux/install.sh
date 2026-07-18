@@ -1,8 +1,8 @@
 #!/bin/bash
 echo "Installing CloudPhone Termux Agent..."
 pkg update -y
-pkg install python root-repo tsu termux-api socat git wget -y
-pip install requests websocket-client
+pkg install python root-repo tsu termux-api git wget libjpeg-turbo -y
+pip install requests websocket-client Pillow
 
 echo "Downloading agent code..."
 cd ~
@@ -20,7 +20,8 @@ cat > config.json << EOF
   "device_id": "",
   "device_token": "",
   "ping_interval": 5,
-  "scrcpy_bitrate": 2000000,
+  "target_fps": 8,
+  "jpeg_quality": 40,
   "scrcpy_max_size": 720
 }
 EOF

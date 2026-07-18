@@ -21,6 +21,35 @@ function formatLastSeen(dateStr: string | null) {
 export default function DeviceCard({ device, onRefresh }: { device: any, onRefresh: () => void }) {
   const [activeTab, setActiveTab] = useState('screen')
   const [deleting, setDeleting] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState('')
+
+  const handleUploadApk = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setUploadStatus(`Mengupload ${file.name}...`)
+    try {
+      const res = await fetch(`/api/upload_apk?deviceId=${device.id}&name=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        body: file, // Raw stream
+        headers: {
+          'Content-Type': 'application/octet-stream'
+        }
+      })
+      if (res.ok) {
+        setUploadStatus('✅ Berhasil dikirim! Sedang di-install di HP...')
+      } else {
+        setUploadStatus('❌ Gagal upload ke server.')
+      }
+    } catch {
+      setUploadStatus('❌ Terjadi kesalahan jaringan.')
+    } finally {
+      setUploading(false)
+      // reset file input
+      e.target.value = ''
+    }
+  }
   const isOnline = device.status === 'online'
   const uptime = device.onlineSince ? Date.now() - new Date(device.onlineSince).getTime() : 0
 
@@ -99,6 +128,7 @@ export default function DeviceCard({ device, onRefresh }: { device: any, onRefre
         <button className={`tab ${activeTab === 'screen' ? 'active' : ''}`} onClick={() => setActiveTab('screen')}>🖥️ Kontrol</button>
         <button className={`tab ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>📋 Logs</button>
         <button className={`tab ${activeTab === 'clipboard' ? 'active' : ''}`} onClick={() => setActiveTab('clipboard')}>📎 Clipboard</button>
+        <button className={`tab ${activeTab === 'apk' ? 'active' : ''}`} onClick={() => setActiveTab('apk')}>📦 Install APK</button>
         <button className={`tab ${activeTab === 'info' ? 'active' : ''}`} onClick={() => setActiveTab('info')}>ℹ️ Info</button>
       </div>
 
@@ -147,6 +177,25 @@ export default function DeviceCard({ device, onRefresh }: { device: any, onRefre
               </tr>
             ))}
           </table>
+        </div>
+      )}
+
+      {activeTab === 'apk' && (
+        <div className="tab-content">
+          <div style={{marginBottom:'12px', fontSize:'0.8rem', color:'var(--text2)'}}>
+            Upload file APK. File akan didownload langsung oleh HP dan di-install otomatis (100MB+ support).
+          </div>
+          <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+            <label className="btn btn-primary" style={{cursor: uploading ? 'not-allowed' : 'pointer', opacity: uploading ? 0.6 : 1}}>
+              {uploading ? '⏳ Mengupload...' : '📤 Pilih File APK'}
+              <input type="file" accept=".apk,*/*" style={{display:'none'}} onChange={handleUploadApk} disabled={uploading} />
+            </label>
+          </div>
+          {uploadStatus && (
+            <div style={{marginTop:'12px', fontSize:'0.85rem', color:'var(--text)', padding:'8px 12px', background:'var(--surface2)', borderRadius:'6px'}}>
+              {uploadStatus}
+            </div>
+          )}
         </div>
       )}
     </div>

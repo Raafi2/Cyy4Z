@@ -38,8 +38,65 @@ async function validateAgentWs(token) {
 }
 
 app.prepare().then(() => {
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const UPLOAD_DIR = path.join(os.tmpdir(), 'cloudphone_uploads');
+  if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
   const server = http.createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
+
+    // Upload APK/file from browser panel (streaming, supports 100MB+)
+    if (req.method === 'POST' && parsedUrl.pathname === '/api/upload_apk') {
+      const deviceId = parsedUrl.query.deviceId;
+      const rawName = parsedUrl.query.name || 'app.apk';
+      const filename = path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, '_');
+      if (!deviceId) { res.statusCode = 400; return res.end('Missing deviceId'); }
+
+      const safeName = `${Date.now()}_${filename}`;
+      const tempFile = path.join(UPLOAD_DIR, safeName);
+      const dest = fs.createWriteStream(tempFile);
+
+      req.pipe(dest);
+
+      req.on('end', () => {
+        const sess = deviceSessions.get(deviceId);
+        if (sess && sess.agentWs && sess.agentWs.readyState === WebSocket.OPEN) {
+          sess.agentWs.send(JSON.stringify({
+            type: 'install_apk',
+            url: `/api/download_apk?file=${encodeURIComponent(safeName)}`,
+            filename: filename
+          }));
+        }
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: true }));
+      });
+      return;
+    }
+
+    // Download APK/file (called by Termux agent)
+    if (req.method === 'GET' && parsedUrl.pathname === '/api/download_apk') {
+      const rawFile = parsedUrl.query.file || '';
+      const safeName = path.basename(rawFile);
+      const filePath = path.join(UPLOAD_DIR, safeName);
+      if (!safeName || !fs.existsSync(filePath)) {
+        res.statusCode = 404;
+        return res.end('Not found');
+      }
+      const stat = fs.statSync(filePath);
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': stat.size,
+        'Content-Disposition': `attachment; filename="${safeName}"`
+      });
+      fs.createReadStream(filePath).pipe(res);
+      // Clean up after 10 minutes
+      setTimeout(() => { try { fs.unlinkSync(filePath); } catch {} }, 600000);
+      return;
+    }
+
     handle(req, res, parsedUrl);
   });
 

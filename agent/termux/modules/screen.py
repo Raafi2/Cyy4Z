@@ -6,6 +6,8 @@ import io
 import websocket
 import json
 
+SCREEN_TMP = '/data/local/tmp/cloudphone_screen.png'
+
 class ScreenStreamer:
     def __init__(self, config, input_handler):
         self.config = config
@@ -13,42 +15,68 @@ class ScreenStreamer:
         self.ws = None
         self.running = False
         self.connected = False
-        self.target_fps = config.get('target_fps', 8)
+        self.target_fps = config.get('target_fps', 6)
         self.quality = config.get('jpeg_quality', 40)
         self.max_size = config.get('scrcpy_max_size', 720)
+        self.frame_count = 0
+        self.error_count = 0
 
     def capture_frame(self):
-        """Capture screen using Android screencap command"""
+        """Capture screen by writing to file (avoids binary stdout corruption)"""
         try:
+            # Write to temp file instead of piping stdout (fixes \r\n corruption)
             result = subprocess.run(
-                ['su', '-c', 'screencap -p'],
+                ['su', '-c', f'screencap -p {SCREEN_TMP}'],
                 capture_output=True, timeout=5
             )
-            if result.returncode == 0 and len(result.stdout) > 100:
-                png_data = result.stdout
-                # Try to compress with Pillow if available
-                try:
-                    from PIL import Image
-                    img = Image.open(io.BytesIO(png_data))
-                    # Resize to max_size
-                    w, h = img.size
-                    if max(w, h) > self.max_size:
-                        ratio = self.max_size / max(w, h)
-                        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
-                    # Convert RGBA to RGB (JPEG doesn't support alpha)
-                    if img.mode == 'RGBA':
-                        img = img.convert('RGB')
-                    buf = io.BytesIO()
-                    img.save(buf, format='JPEG', quality=self.quality)
-                    return buf.getvalue()
-                except ImportError:
-                    # No Pillow, send raw PNG
-                    return png_data
+            if result.returncode != 0:
+                if self.error_count < 3:
+                    print(f"screencap failed: {result.stderr.decode(errors='ignore')}")
+                self.error_count += 1
+                return None
+
+            if not os.path.exists(SCREEN_TMP):
+                return None
+
+            file_size = os.path.getsize(SCREEN_TMP)
+            if file_size < 100:
+                return None
+
+            # Read the PNG file
+            with open(SCREEN_TMP, 'rb') as f:
+                png_data = f.read()
+
+            # Compress with Pillow
+            try:
+                from PIL import Image
+                img = Image.open(io.BytesIO(png_data))
+                w, h = img.size
+                if max(w, h) > self.max_size:
+                    ratio = self.max_size / max(w, h)
+                    img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+                if img.mode == 'RGBA':
+                    img = img.convert('RGB')
+                buf = io.BytesIO()
+                img.save(buf, format='JPEG', quality=self.quality)
+                self.error_count = 0
+                return buf.getvalue()
+            except ImportError:
+                self.error_count = 0
+                return png_data
+            except Exception as e:
+                if self.error_count < 3:
+                    print(f"Image convert error: {e}")
+                self.error_count += 1
+                return None
+
         except subprocess.TimeoutExpired:
-            pass
+            print("screencap timeout")
+            return None
         except Exception as e:
-            print(f"Capture error: {e}")
-        return None
+            if self.error_count < 3:
+                print(f"Capture error: {e}")
+            self.error_count += 1
+            return None
 
     def connect_ws(self):
         """Connect to panel WebSocket with auto-reconnect"""
@@ -79,7 +107,6 @@ class ScreenStreamer:
         self.connected = True
 
     def _on_message(self, ws, message):
-        """Handle control messages from browser"""
         if isinstance(message, str):
             try:
                 data = json.loads(message)
@@ -109,6 +136,13 @@ class ScreenStreamer:
                 frame = self.capture_frame()
                 if frame:
                     self.ws.send(frame, opcode=websocket.ABNF.OPCODE_BINARY)
+                    self.frame_count += 1
+                    if self.frame_count == 1:
+                        print(f"First frame sent! ({len(frame)} bytes)")
+                    elif self.frame_count % 50 == 0:
+                        print(f"Frames sent: {self.frame_count}")
+                else:
+                    time.sleep(0.2)  # Brief pause if no frame captured
             except Exception as e:
                 print(f"Stream error: {e}")
                 time.sleep(1)
@@ -120,29 +154,36 @@ class ScreenStreamer:
                 time.sleep(sleep_time)
 
     def run(self):
-        """Main entry point - start streaming"""
+        """Main entry point"""
         self.running = True
         print("Screen streamer starting (MJPEG mode)...")
 
-        # Install Pillow for JPEG compression (smaller frames)
+        # Install Pillow
         try:
             from PIL import Image
             print("Pillow available - using JPEG compression")
         except ImportError:
-            print("Installing Pillow for JPEG compression...")
+            print("Installing Pillow...")
             os.system("pip install Pillow")
             try:
                 from PIL import Image
-                print("Pillow installed successfully")
+                print("Pillow installed")
             except:
-                print("WARNING: Pillow not available, sending raw PNG (larger frames)")
+                print("WARNING: No Pillow, sending raw PNG")
 
-        # Start WebSocket connection thread
+        # Test screencap first
+        print("Testing screencap...")
+        test = subprocess.run(['su', '-c', f'screencap -p {SCREEN_TMP}'], capture_output=True, timeout=10)
+        if test.returncode == 0 and os.path.exists(SCREEN_TMP):
+            size = os.path.getsize(SCREEN_TMP)
+            print(f"screencap OK! ({size} bytes)")
+        else:
+            print(f"WARNING: screencap test failed: {test.stderr.decode(errors='ignore')}")
+
+        # Start WS thread
         ws_thread = threading.Thread(target=self.connect_ws, daemon=True)
         ws_thread.start()
-
-        # Wait a moment for WS to connect
         time.sleep(2)
 
-        # Start capture and stream loop
+        # Start streaming
         self.stream_loop()
